@@ -1,6 +1,7 @@
 import express from 'express';
 import { appointments, assignTask, blocks, containerDetail, containers, createContainer, createGateAppointment, createYardTask, dashboard, deleteContainer, deleteGateAppointment, deleteYardTask, editGateAppointment, equipment, gateConflicts, prioritizeTasks, tasks, updateContainer, updateYardTask, voyages, yardHeatmap } from './domain.js';
-const app = express(); app.use(express.json());
+import { batchDetail, exportGateBatch, exportTasksBatch, importBatch, listBatches, resolveConflict, retryBatchItems } from './exchange.js';
+const app = express(); app.use(express.json({ limit: '2mb' }));
 app.get('/api/dashboard', (_req, res) => res.json(dashboard()));
 app.get('/api/voyages', (_req, res) => res.json(voyages));
 app.get('/api/containers', (req, res) => res.json(req.query.status ? containers.filter(c => c.status === req.query.status) : containers));
@@ -21,5 +22,12 @@ app.post('/api/tasks', (req, res) => { try { res.status(201).json(createYardTask
 app.patch('/api/tasks/:id', (req, res) => { try { const result = updateYardTask(req.params.id, req.body); if (!result) return res.status(404).json({ message: '作业任务不存在' }); res.json(result); } catch (error) { res.status(409).json({ message: error instanceof Error ? error.message : '更新作业任务失败' }); } });
 app.delete('/api/tasks/:id', (req, res) => { const result = deleteYardTask(req.params.id); if (!result) return res.status(404).json({ message: '作业任务不存在' }); res.json({ deleted: true, id: result.id }); });
 app.patch('/api/tasks/:id/assign', (req, res) => { const result = assignTask(req.params.id, req.body.equipmentId); if (!result) return res.status(404).json({ message: '任务或设备不存在' }); res.json(result); });
+app.post('/api/exchange/import', (req, res) => { try { const result = importBatch(req.body); res.status(result.duplicate ? 200 : 201).json(result); } catch (error) { res.status(400).json({ message: error instanceof Error ? error.message : '批次报文无法处理' }); } });
+app.get('/api/exchange/batches', (_req, res) => res.json(listBatches()));
+app.get('/api/exchange/batches/:id', (req, res) => { const batch = batchDetail(req.params.id); if (!batch) return res.status(404).json({ message: '交换批次不存在' }); res.json(batch); });
+app.post('/api/exchange/batches/:id/retry', (req, res) => { try { const batch = retryBatchItems(req.params.id, Array.isArray(req.body?.itemKeys) ? req.body.itemKeys : undefined); if (!batch) return res.status(404).json({ message: '交换批次不存在' }); res.json(batch); } catch (error) { res.status(409).json({ message: error instanceof Error ? error.message : '重试失败' }); } });
+app.post('/api/exchange/batches/:id/items/:key/resolve', (req, res) => { try { const resolution = req.body?.resolution === 'accept-external' ? 'accept-external' : 'keep-local'; const batch = resolveConflict(req.params.id, decodeURIComponent(req.params.key), resolution); if (!batch) return res.status(404).json({ message: '交换批次不存在' }); res.json(batch); } catch (error) { res.status(409).json({ message: error instanceof Error ? error.message : '裁决失败' }); } });
+app.get('/api/exchange/export/tasks', (_req, res) => res.json(exportTasksBatch()));
+app.get('/api/exchange/export/gate', (_req, res) => res.json(exportGateBatch()));
 app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'port-yard-operations' }));
 const port = Number(process.env.PORT || 4107); app.listen(port, () => console.log(`port yard API listening on ${port}`));
